@@ -1,0 +1,199 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum MailboxType {
+  WARMUP
+  TARGET
+}
+
+enum MailboxStatus {
+  PENDING
+  CONNECTED
+  ERROR
+  DISABLED
+}
+
+enum ConnectionTestStatus {
+  UNTESTED
+  SUCCESS
+  FAILED
+}
+
+enum MessageType {
+  WARMUP
+  TEST
+}
+
+enum MessageStatus {
+  SCHEDULED
+  SENDING
+  SENT
+  RECEIVED
+  BOUNCED
+  FAILED
+  TIMEOUT
+  REPLY_SENT
+}
+
+enum Placement {
+  INBOX
+  SPAM
+  OTHER
+}
+
+enum EventType {
+  SCHEDULED
+  SMTP_CONNECTED
+  SMTP_SEND_STARTED
+  SMTP_SENT
+  IMAP_CONNECTED
+  MESSAGE_RECEIVED
+  REPLY_SENT
+  FAILED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  mailboxes     Mailbox[]
+  warmupConfigs WarmupConfig[]
+  events        Event[]
+}
+
+model Mailbox {
+  id     String      @id @default(uuid())
+  userId String
+  type   MailboxType
+  email  String
+
+  smtpHost              String?
+  smtpPort              Int?
+  smtpSecurity          String?
+  smtpUsername          String?
+  encryptedSmtpPassword String?
+
+  imapHost              String?
+  imapPort              Int?
+  imapSecurity          String?
+  imapUsername          String?
+  encryptedImapPassword String?
+
+  smtpEnabled Boolean @default(true)
+  imapEnabled Boolean @default(false)
+
+  status MailboxStatus @default(PENDING)
+
+  smtpTestStatus ConnectionTestStatus @default(UNTESTED)
+  imapTestStatus ConnectionTestStatus @default(UNTESTED)
+  lastSmtpError  String?
+  lastImapError  String?
+  lastSmtpTestAt DateTime?
+  lastImapTestAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  warmupMailboxConfigs WarmupConfig[] @relation("WarmupMailbox")
+  targetMailboxConfigs WarmupConfig[] @relation("TargetMailbox")
+
+  // V1: exactly one WARMUP and one TARGET mailbox per user.
+  @@unique([userId, type])
+}
+
+model WarmupConfig {
+  id              String  @id @default(uuid())
+  userId          String  @unique
+  warmupMailboxId String?
+  targetMailboxId String?
+
+  enabled         Boolean @default(false)
+  dailyLimit      Int     @default(5)
+  minDelayMinutes Int     @default(45)
+  maxDelayMinutes Int     @default(180)
+  activeStartHour Int     @default(9)
+  activeEndHour   Int     @default(17)
+  timezone        String  @default("UTC")
+  repliesEnabled  Boolean @default(false)
+
+  // Gradual ramp-up: day 1 sends rampStartVolume, then +rampIncrement per day, capped at dailyLimit.
+  rampUpEnabled   Boolean @default(true)
+  rampStartVolume Int     @default(2)
+  rampIncrement   Int     @default(1)
+
+  // First time warmup was started; ramp-up day counting starts here.
+  startedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  warmupMailbox Mailbox?        @relation("WarmupMailbox", fields: [warmupMailboxId], references: [id], onDelete: SetNull)
+  targetMailbox Mailbox?        @relation("TargetMailbox", fields: [targetMailboxId], references: [id], onDelete: SetNull)
+  messages      WarmupMessage[]
+}
+
+model WarmupMessage {
+  id             String        @id @default(uuid())
+  warmupConfigId String
+  type           MessageType   @default(WARMUP)
+  testId         String        @unique
+  messageId      String?
+  subject        String
+  // Content template used for this message (null = legacy controlled test content).
+  templateId     String?
+  from           String
+  to             String
+  status         MessageStatus @default(SCHEDULED)
+
+  scheduledAt DateTime
+  sentAt      DateTime?
+  receivedAt  DateTime?
+
+  // Where the target mailbox actually filed the message (observed via IMAP).
+  placement Placement?
+  folder    String?
+  imapUid   Int?
+
+  replyStartedAt DateTime?
+  repliedAt      DateTime?
+  replyMessageId String?
+  replyError     String?
+
+  errorCode    String?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  warmupConfig WarmupConfig @relation(fields: [warmupConfigId], references: [id], onDelete: Cascade)
+  events       Event[]
+
+  @@index([warmupConfigId, scheduledAt])
+  @@index([status])
+}
+
+model Event {
+  id              String    @id @default(uuid())
+  userId          String
+  warmupMessageId String?
+  type            EventType
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  warmupMessage WarmupMessage? @relation(fields: [warmupMessageId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}

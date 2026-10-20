@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: email_warmer_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: email_warmer
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: email_warmer_redis
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    container_name: email_warmer_api
+    command: sh -c "npx prisma migrate deploy && npm run start"
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/email_warmer?schema=public
+      REDIS_URL: redis://redis:6379
+      APP_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
+      JWT_SECRET: supersecretjwtkey
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build: .
+    container_name: email_warmer_worker
+    command: npm run start:worker
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/email_warmer?schema=public
+      REDIS_URL: redis://redis:6379
+      APP_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  pgdata:
