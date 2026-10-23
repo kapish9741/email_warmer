@@ -1,6 +1,6 @@
 import Fastify from "fastify"
 import cookie from "@fastify/cookie"
-import { env } from "./config/env"
+import { env, isDbConfigured } from "./config/env"
 import { errorHandler } from "./middleware/error-handler"
 import { registerRateLimit } from "./middleware/rate-limit"
 import { authRoutes } from "./modules/auth/auth.controller"
@@ -36,24 +36,40 @@ export async function buildApp() {
   await app.register(cookie)
   await registerRateLimit(app)
 
-  // Optional direct browser access; in development the Next.js app proxies /api so no CORS is needed.
-  const allowedOrigins = env.CORS_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
-  if (allowedOrigins.length) {
-    app.addHook("onRequest", async (request, reply) => {
-      const origin = request.headers.origin
-      if (origin && allowedOrigins.includes(origin)) {
+  // Direct browser access support: allow configured origins, or any localhost / vercel origin
+  const explicitOrigins = env.CORS_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+  app.addHook("onRequest", async (request, reply) => {
+    const origin = request.headers.origin
+    if (origin) {
+      const isAllowed =
+        explicitOrigins.length === 0 ||
+        explicitOrigins.includes(origin) ||
+        explicitOrigins.includes("*") ||
+        origin.startsWith("http://localhost:") ||
+        origin.endsWith(".vercel.app")
+
+      if (isAllowed) {
         reply.header("Access-Control-Allow-Origin", origin)
         reply.header("Access-Control-Allow-Credentials", "true")
         reply.header("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
-        reply.header("Access-Control-Allow-Headers", "Content-Type,Authorization")
+        reply.header("Access-Control-Allow-Headers", "Content-Type,Authorization,Cookie")
         reply.header("Vary", "Origin")
       }
-      if (request.method === "OPTIONS") return reply.status(204).send()
-    })
-  }
+    }
+    if (request.method === "OPTIONS") return reply.status(204).send()
+  })
 
-  app.get("/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }))
-  app.get("/api/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }))
+  app.get("/", async () => ({ status: "ok", name: "email-warmer-backend", timestamp: new Date().toISOString() }))
+  app.get("/health", async () => ({
+    status: isDbConfigured ? "ok" : "degraded",
+    database: isDbConfigured ? "connected" : "DATABASE_URL_NOT_SET",
+    timestamp: new Date().toISOString(),
+  }))
+  app.get("/api/health", async () => ({
+    status: isDbConfigured ? "ok" : "degraded",
+    database: isDbConfigured ? "connected" : "DATABASE_URL_NOT_SET",
+    timestamp: new Date().toISOString(),
+  }))
 
   await app.register(authRoutes)
   await app.register(mailboxRoutes)

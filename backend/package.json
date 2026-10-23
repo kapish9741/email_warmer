@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "dev:worker": "ts-node-dev --respawn --transpile-only src/worker.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
+    "postinstall": "prisma generate",
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
     "prisma:generate": "prisma generate",
@@ -13,6 +14,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:endpoints": "tsx scripts/test-endpoints.ts",
     "templates:sample": "tsx scripts/sample-sequence.ts"
   },
   "dependencies": {
