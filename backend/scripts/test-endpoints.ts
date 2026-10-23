@@ -67,6 +67,20 @@ async function runTests() {
     assert.strictEqual(res.data.status, "ok")
   })
 
+  await test("Readiness check /ready (SELECT 1)", "/ready", async () => {
+    const res = await req("/ready")
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(res.data.status, "ready")
+    assert.strictEqual(res.data.database, "connected")
+  })
+
+  await test("Readiness check /api/ready (SELECT 1)", "/api/ready", async () => {
+    const res = await req("/api/ready")
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(res.data.status, "ready")
+    assert.strictEqual(res.data.database, "connected")
+  })
+
   // 2. Auth Endpoints
   const testEmail = `test_${Date.now()}@example.com`
   const testPassword = "Password123!Secure"

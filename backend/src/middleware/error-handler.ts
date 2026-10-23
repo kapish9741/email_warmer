@@ -29,6 +29,18 @@ export function errorHandler(error: FastifyError | Error, request: FastifyReques
     return reply.status(statusCode).send({ success: false, error: { code: "BAD_REQUEST", message: error.message } })
   }
 
+  if (
+    error.name === "PrismaClientInitializationError" ||
+    error.name === "PrismaClientRustPanicError" ||
+    (typeof error.message === "string" && error.message.includes("Can't reach database server"))
+  ) {
+    request.log.error({ err: error.name }, "Database connection error")
+    return reply.status(503).send({
+      success: false,
+      error: { code: "DATABASE_UNAVAILABLE", message: "Database service temporarily unavailable" },
+    })
+  }
+
   request.log.error({ err: error }, "Unhandled error")
   return reply.status(500).send({ success: false, error: { code: "INTERNAL_ERROR", message: "Something went wrong" } })
 }

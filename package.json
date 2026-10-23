@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run prisma:generate --prefix backend && next build",
+    "postinstall": "npm run prisma:generate --prefix backend",
     "start": "next start",
     "lint": "eslint"
   },

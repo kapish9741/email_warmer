@@ -1,6 +1,7 @@
 import Fastify from "fastify"
 import cookie from "@fastify/cookie"
 import { env, isDbConfigured } from "./config/env"
+import { prisma } from "./db/prisma"
 import { errorHandler } from "./middleware/error-handler"
 import { registerRateLimit } from "./middleware/rate-limit"
 import { authRoutes } from "./modules/auth/auth.controller"
@@ -71,6 +72,37 @@ export async function buildApp() {
     timestamp: new Date().toISOString(),
   }))
 
+  app.get("/login", async (_req, reply) => {
+    return reply.status(200).send({
+      success: true,
+      data: { message: "Email Warmer API is online. Use POST /api/auth/login to authenticate." },
+    })
+  })
+
+  app.get("/ready", async (_request, reply) => {
+    if (!isDbConfigured) {
+      return reply.status(503).send({ success: false, status: "not_ready", error: "Database not configured" })
+    }
+    try {
+      await prisma.$queryRaw`SELECT 1`
+      return { success: true, status: "ready", database: "connected", timestamp: new Date().toISOString() }
+    } catch {
+      return reply.status(503).send({ success: false, status: "not_ready", error: "Database connection failed" })
+    }
+  })
+
+  app.get("/api/ready", async (_request, reply) => {
+    if (!isDbConfigured) {
+      return reply.status(503).send({ success: false, status: "not_ready", error: "Database not configured" })
+    }
+    try {
+      await prisma.$queryRaw`SELECT 1`
+      return { success: true, status: "ready", database: "connected", timestamp: new Date().toISOString() }
+    } catch {
+      return reply.status(503).send({ success: false, status: "not_ready", error: "Database connection failed" })
+    }
+  })
+
   await app.register(authRoutes)
   await app.register(mailboxRoutes)
   await app.register(warmupRoutes)
@@ -78,4 +110,27 @@ export async function buildApp() {
   await app.register(eventRoutes)
 
   return app
+}
+
+let appInstance: any = null
+
+export async function getApp() {
+  if (!appInstance) {
+    appInstance = await buildApp()
+    await appInstance.ready()
+  }
+  return appInstance
+}
+
+export default async function handler(req: any, res: any) {
+  const app = await getApp()
+  app.server.emit("request", req, res)
+}
+
+// Ensure both default export and module.exports are callable by Vercel's Node runtime
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = handler
+  module.exports.default = handler
+  module.exports.buildApp = buildApp
+  module.exports.getApp = getApp
 }
